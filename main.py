@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from math import sqrt
 import time
+import os
 
 """
 archtitecture: a doctionaty
@@ -26,11 +27,11 @@ def get_train_and_target():
     train_data = train_data.rename(columns=lambda c: c - 1).to_numpy()
     return train_data, target
 
-def get_input_size_from_architecture(architecture):
+def get_level_shape_from_architecture(architecture, last_level, return_size=0):
     num_features_map = 3 #input
     fetaure_map_rows_size = 32
     fetaure_map_columns_size = 32
-    for level in range(len(architecture)-1):
+    for level in range(last_level):
         kernel = architecture[level]['convolution']['kernel']
         should_padd = int(kernel/2)
         should_padd = should_padd - architecture[level]['convolution']['padding']
@@ -39,10 +40,26 @@ def get_input_size_from_architecture(architecture):
         num_features_map = architecture[level]['convolution']['features_map']
         fetaure_map_rows_size = after_convolution_row_size / architecture[level]['max_pooling']['kernel']
         fetaure_map_columns_size = after_convolution_col_size / architecture[level]['max_pooling']['kernel']
-    return int(num_features_map*fetaure_map_rows_size*fetaure_map_columns_size)
+    if return_size:
+        return int(num_features_map * fetaure_map_rows_size * fetaure_map_columns_size)
+    else:
+        return num_features_map, fetaure_map_rows_size, fetaure_map_columns_size
 
 def get_random_matrix(row_size, col_size):
     return sqrt(2 / (row_size + col_size)) * np.random.randn(row_size, col_size)
+
+def get_random_convolution_weights(level_features_map_number, next_level_feature_maps_number, kernel_size):
+    return sqrt(2 / (level_features_map_number + next_level_feature_maps_number)) * \
+           np.random.randn(level_features_map_number, next_level_feature_maps_number, kernel_size, kernel_size)
+
+def print_output_str(test_folder, epoch_number, correct_predict, lr):
+    output_str = f"in epoch_{epoch_number} the accuracy precents are {(correct_predict / 8000) * 100}, with {lr} lr%\n"
+    print(output_str)
+    with open(f"{test_folder}\\output_layer.txt", "a") as output_file:
+        output_file.write(output_str)
+
+def write_weights_to_csv(weights, test_folder, epoch_number):
+    pd.DataFrame(data=weights).to_csv(f"{test_folder}\\epoch_{epoch_number}_weigts.csv")
 
 def get_predicted_result_from_output_layer(output_layer):
     return np.where(output_layer == output_layer.max())[0][0] + 1
@@ -53,14 +70,20 @@ def get_error_output(output_layer, target_of_this_row):
     error_output = target_layer - output_layer
     return error_output
 
+def get_weights_to_convolution_level(architecture, level):
+    level_features_map_number, _, _ = get_level_shape_from_architecture(architecture, level, return_size=0)
+    next_level_feature_maps_number, _, _ = get_level_shape_from_architecture(architecture, level+1, return_size=0)
+    kernel_size = architecture[level]['convolution']['kernel']
+    return get_random_convolution_weights(level_features_map_number, next_level_feature_maps_number, kernel_size)
+
 def get_random_weights(architecture):
     weights = {}
     weights['con_weights'] = []
     for level in range(len(architecture)-1): # initialize wieghts for convolutional
         matrix_size = architecture[level]['convolution']['kernel']
-        weights['con_weights'].append(get_random_matrix(matrix_size, matrix_size))
+        weights['con_weights'].append(get_weights_to_convolution_level(architecture, level))
     weights['fully_weights'] = []
-    row_size = get_input_size_from_architecture(architecture)
+    row_size = get_level_shape_from_architecture(architecture, len(architecture)-1, return_size=1)
     for level in range(len(architecture['flatten'])-1):
         col_size = architecture['flatten'][level] + 1 # one more for bias
         weights['fully_weights'].append(get_random_matrix(row_size, col_size))
@@ -146,10 +169,10 @@ def do_convolution_to_one_entry(one_feature_in_last_layer, row, col, weights_mat
     kernel_size = architecture['kernel']
     # todo: add option when padding = 0
     half_kernel = int(kernel_size/2)
-    submatrix = one_feature_in_last_layer[row-half_kernel:row+half_kernel+1, col-half_kernel:col-half_kernel+1]
+    submatrix = one_feature_in_last_layer[row-half_kernel:row+half_kernel+1, col-half_kernel:col+half_kernel+1]
     if not all_inside(row, col, one_feature_in_last_layer.shape, half_kernel):
         submatrix = fill_matrix_in_zeros(row, col, one_feature_in_last_layer, half_kernel)
-    return submatrix*weights_matrix
+    return np.sum(submatrix*weights_matrix)
 
 
 def do_ReLU_full_layer(con_layer):
@@ -177,28 +200,28 @@ def convolutional_forward_propagation(architecture, input_features, weights):
         size = get_convolution_feature_map_size_in_level(architecture, level) #size of each feature map after the convolition
         # convolution
         con_layer = np.zeros((con_layer_size, size, size))
-        for feature_next_layer_number in con_layer_size:
+        for feature_next_layer_number in range(con_layer_size):
             feature_map = con_layer[feature_next_layer_number]
-            for map in range(last_layer):
-                for row in size:
-                    for col in size:
-                        feature_map[row][col] = feature_map[row][col] + do_convolution_to_one_entry(last_layer[map], row, col, weights[level * 2], architecture[level]['convolution'])
+            for map in range(len(last_layer)):
+                for row in range(size):
+                    for col in range(size):
+                        feature_map[row][col] = feature_map[row][col] + \
+                                                do_convolution_to_one_entry(last_layer[map], row, col, weights[level][map][feature_next_layer_number], architecture[level]['convolution'])
             con_layer[feature_next_layer_number] = feature_map
         con_layer = do_ReLU_full_layer(con_layer)
         layers[level]['convolution'] = con_layer
 
         # max-pooling
-        last_layer = con_layer
-        size = size / architecture[level]['max_pooling']['kernel']  # todo: add stride
+        size = int(size / architecture[level]['max_pooling']['kernel'])  # todo: add stride
         max_pooling_layer = np.empty((con_layer_size, size, size))
-        for feature_number in con_layer_size:
+        for feature_number in range(con_layer_size):
             max_pooling_layer[feature_number] = max_pooling_one_feature(con_layer[feature_number], architecture[level]['max_pooling'], size)
         layers[level]['max_pooling'] = max_pooling_layer
         last_layer = max_pooling_layer
     return layers
 
 def get_flatten_from_convolution_layers(layers):
-    return layers[-1].flatten()
+    return layers[-1]['max_pooling'].flatten()
 
 def fully_connected_forward_propagation_one_level(layer, weights, last=False):
     next_layer = weights * layer[:, np.newaxis]
@@ -248,8 +271,43 @@ def fully_connected_backward_propagation(weights, error_output, layers, lr):
         updated_weights[layer_number], above_layer_error = backpropagation_one_weights(weights[layer_number], layers[layer_number], above_layer_error, lr)
     return updated_weights, above_layer_error
 
+def max_pooling_backward_propagation(last_layer_error, previous_layer):
+    # return previous_layer error
+    # there are the same number of featres maps at last_layer and at previous_layer
+    previous_layer_error = np.zeros(last_layer_error.shape)
+    for map_number in range(len(previous_layer)):
+        map = previous_layer[map_number]
+        for row in range(0, map.shape[0], 2):
+            for col in range(0, map.shape[1], 2):
+                max_index = np.where(previous_layer[row-1:row+1+1, col-1:col+1+1] == previous_layer[row-1:row+1+1, col-1:col+1+1].max())[0]
+                previous_layer_error[map_number][max_index] = last_layer_error[row][col] - map[max_index]
+    return previous_layer_error
+
+def specific_convolution_backward_propagation(old_weights, last_layer_error, previous_layer, lr):
+    # return previous_layer error and the updated weights
+    previous_layer_error = np.zeros(last_layer_error.shape)
+    new_weights = np.empy(old_weights.shape)
+    for last_layer_map_number in range(len(last_layer_error)):
+        for previous_layer_map_number in range(len(previous_layer)):
+            for row in range(0, map.shape[0], 2):
+                for col in range(0, map.shape[1], 2):
+                    previous_layer_error[previous_layer_map_number][row-1:row+1+1, col-1:col+1+1] = \
+                            previous_layer_error[previous_layer_map_number][row-1:row+1+1, col-1:col+1+1] + \
+                            old_weights[previous_layer_map_number][last_layer_map_number] * \
+                                last_layer_error[last_layer_map_number][row - 1:row + 1 + 1, col - 1:col + 1 + 1]
+                    new_weights[previous_layer_map_number][last_layer_map_number] = \
+                        old_weights[previous_layer_map_number][last_layer_map_number] + \
+                        previous_layer[previous_layer_map_number] * last_layer_error[last_layer_map_number] * lr
+
+    return new_weights, previous_layer_error
+
+
 def convolutional_backward_propagation(weights, output_layer_error, layers, lr):
-    pass
+    last_layer_error = output_layer_error
+    for i in range(len(weights)-1, -1, -1):
+        last_layer_error = max_pooling_backward_propagation(last_layer_error, layers[i]['convolution'])
+        weights[i], last_layer_error = specific_convolution_backward_propagation(weights[i], last_layer_error, layers[i]['max_pooling'], lr)
+    return weights
 
 def full_backward_propagation(architecture, weights, error_output, layers, lr):
     new_weights = {}
@@ -260,6 +318,7 @@ def full_backward_propagation(architecture, weights, error_output, layers, lr):
 
 def train_convulational_nn(architecture, test_folder, lr):
     weights = get_random_weights(architecture)
+    write_weights_to_csv(weights, test_folder, -1)
     data, target = get_train_and_target()
     input_list = get_features_maps_list_from_data(data)
     epoch_number = 0
@@ -293,7 +352,7 @@ def train_convulational_nn(architecture, test_folder, lr):
 
         # after full epoch - write accuracy precents and write weights to csvs
         print_output_str(test_folder, epoch_number, correct_predict, lr)
-        write_weights_to_csv(between_layers_weights, test_folder, epoch_number)
+        write_weights_to_csv(weights, test_folder, epoch_number)
         epoch_number = epoch_number + 1
         # lr = 0.95 * lr
 
@@ -306,11 +365,6 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                 'flatten': [100, 10],
                 }
 TRAIN_PATH = "data\\train.csv"
-# train_convulational_nn(architecture, "a", 0)
-# data, target = get_train_and_target()
-# input_list = get_features_maps_list_from_data(data)
-# print(len(input_list[0]))
-# print(input_list[0][0].shape)
-# print(target[0])
-
-print(get_flatten_from_convolution_layers([np.arange(16).reshape(4,4), np.arange(8).reshape(2, 2,2)]))
+test_folder = "a"
+os.mkdir(test_folder)
+train_convulational_nn(architecture, "a", lr=0.001)
