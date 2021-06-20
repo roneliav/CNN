@@ -4,6 +4,12 @@ from math import sqrt
 import time
 import os
 from scipy import signal
+import sys
+
+# pd.set_option('display.max_columns', None)
+# pd.set_option('display.width', None)
+# pd.set_option('display.max_colwidth', None)
+np.set_printoptions(threshold=sys.maxsize)
 
 """
 archtitecture: a doctionaty
@@ -51,11 +57,11 @@ def get_random_matrix(row_size, col_size):
 
 def get_random_convolution_weights(level_features_map_number, next_level_feature_maps_number,first_layer_size, second_layer_size, kernel_size):
     # xavier random:
-    # return (sqrt(6) / sqrt((first_layer_size + second_layer_size))) * \
+    # return (sqrt(6) / sqrt(((first_layer_size + second_layer_size)*level_features_map_number))) * \
     #        np.random.randn(next_level_feature_maps_number, level_features_map_number, kernel_size, kernel_size)
 
     # He-Noramlize random
-    return sqrt(2 / (first_layer_size + second_layer_size)) * \
+    return sqrt(2 / ((first_layer_size + second_layer_size)*level_features_map_number)) * \
                np.random.randn(next_level_feature_maps_number, level_features_map_number, kernel_size, kernel_size)
 
 def print_output_str(test_folder, epoch_number, correct_predict, lr):
@@ -87,7 +93,7 @@ def get_weights_to_convolution_level(architecture, level):
     kernel_size = architecture[level]['convolution']['kernel']
     first_layer_size = first_layer_size_rows_size * first_layer_size_columns_size
     second_layer_size = second_layer_size_rows_size * second_layer_size_columns_size
-    return get_random_convolution_weights(level_features_map_number, next_level_feature_maps_number,first_layer_size, second_layer_size, kernel_size)
+    return get_random_convolution_weights(level_features_map_number, next_level_feature_maps_number, first_layer_size, second_layer_size, kernel_size)
 
 def get_random_weights(architecture):
     weights = {}
@@ -141,7 +147,7 @@ def max_pooling_one_feature(feature_map, size_of_new_feature_map):
 def convolutional_forward_propagation(architecture, input_features, weights):
     # layers = list, each item is ndarray in shape according architecture
     layers = [None]*(len(architecture))
-    layers[0] = {'max_pooling': input_features}
+    layers[0] = {'max_pooling': input_features} # for bacward propagation
     last_layer = input_features
     for level in range(1, len(architecture)): # loop on convolution layers until fully connected layer
         layers[level] = {}
@@ -235,8 +241,8 @@ def specific_convolution_backward_propagation(old_weights, last_layer_error, pre
     previous_layer_error = np.zeros(previous_layer.shape)
     new_weights = np.empty(old_weights.shape)
     for previous_feature_map_number in range(previous_layer.shape[0]):
-        previous_layer_error[previous_feature_map_number] = signal.correlate(last_layer_error, old_weights_for_back[previous_feature_map_number], mode='same').sum(axis=0) # todo: add relu
-        previous_layer_error[previous_feature_map_number] = (previous_layer_error[previous_feature_map_number]>0)*1
+        previous_layer_error[previous_feature_map_number] = signal.correlate(last_layer_error, old_weights_for_back[previous_feature_map_number], mode='same').sum(axis=0)
+        previous_layer_error[previous_feature_map_number] = (previous_layer[previous_feature_map_number]>0)*previous_layer_error[previous_feature_map_number]
     for last_layer_map_number in range(len(last_layer_error)):
         for previous_layer_map_number in range(len(previous_layer)):
             current_old_weights = old_weights[last_layer_map_number][previous_layer_map_number]
@@ -315,7 +321,9 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                     'max_pooling': {'kernel':2, 'stride':2}},
                 1: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 32},
                     'max_pooling': {'kernel':2, 'stride':2}},
-                'flatten': [100, 10],
+                2: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 64},
+                    'max_pooling': {'kernel':2, 'stride':2}},
+                'flatten': [100, 10]
                 }
 
 TRAIN_PATH = "data\\train.csv"
