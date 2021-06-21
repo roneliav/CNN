@@ -289,10 +289,21 @@ def specific_convolution_backward_propagation(old_weights, last_layer_error, pre
         previous_layer_error[previous_feature_map_number] = signal.correlate(last_layer_error, old_weights_for_back[previous_feature_map_number], mode='same').sum(axis=0)
         previous_layer_error[previous_feature_map_number] = (previous_layer[previous_feature_map_number]>0)*previous_layer_error[previous_feature_map_number]
     for last_layer_map_number in range(len(last_layer_error)):
-        current_old_weights = old_weights[last_layer_map_number]
-        new_weights[last_layer_map_number] = (previous_layer * last_layer_error[last_layer_map_number][None, :, :]).sum(axis=(1, 2)) * lr + current_old_weights
-        # multiple_error = (previous_layer * last_layer_error[last_layer_map_number][None, :, :]).sum(axis=(1, 2))
-        # new_weights[last_layer_map_number] = current_old_weights + current_old_weights * multiple_error[:, None, None] * lr
+        shape = last_layer_error[last_layer_map_number].shape
+        last_layer_error_according_weights = np.zeros((9,shape[0], shape[1]))
+        last_layer_error_according_weights[0][:-1,:-1] = last_layer_error[last_layer_map_number][1:,1:]
+        last_layer_error_according_weights[1][:-1,:] = last_layer_error[last_layer_map_number][1:,:]
+        last_layer_error_according_weights[2][:-1, 1:] = last_layer_error[last_layer_map_number][1:, :-1]
+        last_layer_error_according_weights[3][:,:-1] = last_layer_error[last_layer_map_number][:,1:]
+        last_layer_error_according_weights[4] = last_layer_error[last_layer_map_number]
+        last_layer_error_according_weights[5][:, 1:] = last_layer_error[last_layer_map_number][:, :-1]
+        last_layer_error_according_weights[6][1:, :-1] = last_layer_error[last_layer_map_number][:-1, 1:]
+        last_layer_error_according_weights[7][1:, :] = last_layer_error[last_layer_map_number][:-1, :]
+        last_layer_error_according_weights[8][1:, 1:] = last_layer_error[last_layer_map_number][:-1, :-1]
+        multiple_errors_by_previous_layer = previous_layer[None,:,:,:]*last_layer_error_according_weights[:,None,:,:]
+        sum_errors_of_each_featre_map = multiple_errors_by_previous_layer.sum(axis=(2,3))
+        delta_weights = sum_errors_of_each_featre_map.transpose(1,0).reshape((previous_layer.shape[0],3,3))
+        new_weights[last_layer_map_number] = old_weights[last_layer_map_number] + lr * delta_weights
     return new_weights, previous_layer_error
 
 
@@ -377,19 +388,19 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                     'max_pooling': {'kernel':2, 'stride':2}},
                 1: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 32},
                     'max_pooling': {'kernel':2, 'stride':2}},
-                2: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 64},
-                    'max_pooling': {'kernel':2, 'stride':2}},
+                # 2: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 64},
+                #     'max_pooling': {'kernel':2, 'stride':2}},
                 'flatten': [100, 10]
                 }
 
 TRAIN_PATH = "data\\train.csv"
 VALIDATE_PATH = "data\\validate.csv"
-test_folder = "c"
+test_folder = "e"
 lr = {"convolution": 0.001,
       "fully_connected": 0.001}
-# os.mkdir(test_folder)
-# train_convulational_nn(test_folder, architecture, lr=lr)
-train_convulational_nn(test_folder, architecture, validate=True)
+os.mkdir(test_folder)
+train_convulational_nn(test_folder, architecture, lr=lr)
+# train_convulational_nn(test_folder, architecture, validate=True)
 # c = np.arange(16).reshape(4, 4)
 # d = np.arange(9).reshape(3, 3)
 # print(c)
@@ -408,3 +419,17 @@ train_convulational_nn(test_folder, architecture, validate=True)
 # l = list(weights['con_weights'])
 # x = 1
 # x = 2
+# a = np.arange(16).reshape(4,4)
+# print(a)
+# print(a.shape)
+# b = np.zeros((9,a.shape[0], a.shape[1]))
+# b[0][:-1,:-1] = a[1:,1:]
+# b[1][:-1,:] = a[1:,:]
+# b[2][:-1, 1:] = a[1:, :-1]
+# b[3][:,:-1] = a[:,1:]
+# b[4] = a
+# b[5][:, 1:] = a[:, :-1]
+# b[6][1:, :-1] = a[:-1, 1:]
+# b[7][1:, :] = a[:-1, :]
+# b[8][1:, 1:] = a[:-1, :-1]
+# print(b)
