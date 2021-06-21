@@ -5,6 +5,7 @@ import time
 import os
 from scipy import signal
 import sys
+import ast
 
 # pd.set_option('display.max_columns', None)
 # pd.set_option('display.width', None)
@@ -26,13 +27,50 @@ weights = {'con_weights':
 
 """
 
-def get_train_and_target():
-    train_data = pd.read_csv(TRAIN_PATH, header=None)  # header=None means that there are not columns' names in the csv
+def get_data_and_target(path):
+    data = pd.read_csv(path, header=None)  # header=None means that there are not columns' names in the csv
     # divide to train and target data frames
-    target = train_data.loc[:, 0]  # first column
-    train_data = train_data.drop(columns=0)  # drop the first column
-    train_data = train_data.rename(columns=lambda c: c - 1).to_numpy()
-    return train_data, target
+    target = data.loc[:, 0]  # first column
+    data = data.drop(columns=0)  # drop the first column
+    data = data.rename(columns=lambda c: c - 1).to_numpy()
+    return data, target
+
+def get_validate_weights(test_folder, epoch_number=0):
+    weights = {}
+    con_weights_df = pd.read_csv(f"{test_folder}\\epoch_{epoch_number}_con_weigts.csv", index_col=0).values.tolist()
+    weights['con_weights'] = []
+    for i in range(len(con_weights_df)):
+    # first_weights = ast.literal_eval(con_weights[0][0])
+        level_weights = con_weights_df[i][0]
+        level_weights = level_weights.replace('\n','')
+        level_weights = level_weights.replace('      ', ',')
+        level_weights = level_weights.replace('     ', ',')
+        level_weights = level_weights.replace('    ', ',')
+        level_weights = level_weights.replace('   ', ',')
+        level_weights = level_weights.replace('  ', ',')
+        level_weights = level_weights.replace(' -', ',-')
+        level_weights = level_weights.replace('] [', '],[')
+        level_weights = level_weights.replace(' ', '')
+        level_weights = ast.literal_eval(level_weights)
+        weights['con_weights'].append(np.asarray(level_weights))
+    fully_weights_df = pd.read_csv(f"{test_folder}\\epoch_{epoch_number}_fully_weights.csv", index_col=0).values.tolist()
+    weights['fully_weights'] = []
+    for i in range(len(fully_weights_df)):
+        # first_weights = ast.literal_eval(con_weights[0][0])
+        level_weights = fully_weights_df[i][0]
+        level_weights = level_weights.replace('\n', '')
+        level_weights = level_weights.replace('      ', ',')
+        level_weights = level_weights.replace('     ', ',')
+        level_weights = level_weights.replace('    ', ',')
+        level_weights = level_weights.replace('   ', ',')
+        level_weights = level_weights.replace('  ', ',')
+        level_weights = level_weights.replace(' -', ',-')
+        level_weights = level_weights.replace('] [', '],[')
+        level_weights = level_weights.replace(' ', '')
+        level_weights = ast.literal_eval(level_weights)
+        weights['fully_weights'].append(np.asarray(level_weights))
+    return weights
+
 
 def get_level_shape_from_architecture(architecture, last_level, return_size=0):
     num_features_map = 3 #input
@@ -64,17 +102,24 @@ def get_random_convolution_weights(level_features_map_number, next_level_feature
     return sqrt(2 / ((first_layer_size + second_layer_size)*level_features_map_number)) * \
                np.random.randn(next_level_feature_maps_number, level_features_map_number, kernel_size, kernel_size)
 
-def print_output_str(test_folder, epoch_number, correct_predict, lr):
-    output_str = f"in epoch_{epoch_number} the accuracy precents are {(correct_predict / 8000) * 100}, with {lr} lr%\n"
+def print_output_str(test_folder, epoch_number, correct_predict, lr=False, validate=False):
+    if validate:
+        output_str = f"in epoch_{epoch_number} the validation accuracy precents are {(correct_predict / 1000) * 100}%\n"
+        with open(f"{test_folder}\\validate.txt", "a") as output_file:
+            output_file.write(output_str)
+    else:
+        output_str = f"in epoch_{epoch_number} the accuracy precents are {(correct_predict / 8000) * 100}%, with lr: {lr}\n"
+        with open(f"{test_folder}\\output_layer.txt", "a") as output_file:
+            output_file.write(output_str)
+
     print(output_str)
-    with open(f"{test_folder}\\output_layer.txt", "a") as output_file:
-        output_file.write(output_str)
+
 
 def from_dict_to_list(weights):
     return [weights[i] for i in range(len(weights))]
 
 def write_weights_to_csv(weights, test_folder, epoch_number):
-    pd.DataFrame(data=weights['con_weights']).to_csv(f"{test_folder}\\epoch_{epoch_number}_con_weigts.csv")
+    pd.DataFrame(data=weights['con_weights']).to_csv(f"{test_folder}\\epoch_{epoch_number}_con_weights.csv")
     weights['fully_weights'] = from_dict_to_list(weights['fully_weights'])
     pd.DataFrame(data=weights['fully_weights']).to_csv(f"{test_folder}\\epoch_{epoch_number}_fully_weights.csv")
 
@@ -99,7 +144,7 @@ def get_random_weights(architecture):
     weights = {}
     weights['con_weights'] = []
     for level in range(len(architecture)-1): # initialize wieghts for convolutional
-        matrix_size = architecture[level]['convolution']['kernel']
+        # matrix_size = architecture[level]['convolution']['kernel']
         weights['con_weights'].append(get_weights_to_convolution_level(architecture, level))
     weights['fully_weights'] = []
     row_size = get_level_shape_from_architecture(architecture, len(architecture)-1, return_size=1) + 1 # one more for bias
@@ -244,10 +289,10 @@ def specific_convolution_backward_propagation(old_weights, last_layer_error, pre
         previous_layer_error[previous_feature_map_number] = signal.correlate(last_layer_error, old_weights_for_back[previous_feature_map_number], mode='same').sum(axis=0)
         previous_layer_error[previous_feature_map_number] = (previous_layer[previous_feature_map_number]>0)*previous_layer_error[previous_feature_map_number]
     for last_layer_map_number in range(len(last_layer_error)):
-        for previous_layer_map_number in range(len(previous_layer)):
-            current_old_weights = old_weights[last_layer_map_number][previous_layer_map_number]
-            multiple_error = (previous_layer[previous_layer_map_number] * last_layer_error[last_layer_map_number]).sum()
-            new_weights[last_layer_map_number][previous_layer_map_number] = current_old_weights + current_old_weights * multiple_error * lr
+        current_old_weights = old_weights[last_layer_map_number]
+        new_weights[last_layer_map_number] = (previous_layer * last_layer_error[last_layer_map_number][None, :, :]).sum(axis=(1, 2)) * lr + current_old_weights
+        # multiple_error = (previous_layer * last_layer_error[last_layer_map_number][None, :, :]).sum(axis=(1, 2))
+        # new_weights[last_layer_map_number] = current_old_weights + current_old_weights * multiple_error[:, None, None] * lr
     return new_weights, previous_layer_error
 
 
@@ -274,10 +319,16 @@ def normalize_layer(input_features):
     return input_features
     # return (input_features-input_features.mean()) / input_features.std()
 
-def train_convulational_nn(architecture, test_folder, lr):
-    weights = get_random_weights(architecture)
-    write_weights_to_csv(weights, test_folder, -1)
-    data, target = get_train_and_target()
+
+def train_convulational_nn(test_folder, architecture=None, lr=None, validate=False, normalize=False):
+    if validate:
+        weights = get_validate_weights(test_folder)
+        data, target = get_data_and_target(VALIDATE_PATH)
+    else:
+        weights = get_random_weights(architecture)
+        write_weights_to_csv(weights, test_folder, -1)
+        data, target = get_data_and_target(TRAIN_PATH)
+
     input_list = get_features_maps_list_from_data(data)
     epoch_number = 0
     """
@@ -289,11 +340,12 @@ def train_convulational_nn(architecture, test_folder, lr):
         for i in range(len(target)):
             row_number = i
             input_features = input_list[row_number]
-            # input_features = normalize_layer(input_features)
+            if normalize:
+                input_features = normalize_layer(input_features)
             target_of_this_raw = target[row_number]
             # forward propagation
             layers, output_layer = full_forward_propagation(architecture, input_features, weights)
-            # output_layer = get_output_layer_from_layers(layers)
+
             predicted_result = get_predicted_result_from_output_layer(output_layer)
 
             """
@@ -303,18 +355,22 @@ def train_convulational_nn(architecture, test_folder, lr):
             if target_of_this_raw == predicted_result:
                 correct_predict += 1
 
-            # calculate output error
-            error_output = get_error_output(output_layer, target_of_this_raw)
-            # backward propagation
-            weights = full_backward_propagation(weights, error_output, layers, lr)
+
+            if not validate: # calculate output error
+                error_output = get_error_output(output_layer, target_of_this_raw)
+                # backward propagation
+                weights = full_backward_propagation(weights, error_output, layers, lr)
             print(f"row {i},  {time.time() - start_time} second\n")
 
-        # after full epoch - write accuracy precents and write weights to csvs
-        print_output_str(test_folder, epoch_number, correct_predict, lr)
-        write_weights_to_csv(weights, test_folder, epoch_number)
+        # after full epoch
+        if validate:
+            print_output_str(test_folder, epoch_number, correct_predict, validate=True)
+            weights = get_validate_weights(test_folder, epoch_number=epoch_number+1)
+        if not validate: # write accuracy precents and write weights to csvs
+            write_weights_to_csv(weights, test_folder, epoch_number)
+            print_output_str(test_folder, epoch_number, correct_predict, lr=lr)
         epoch_number = epoch_number + 1
         # lr = 0.95 * lr
-
 
 
 architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 16},
@@ -327,12 +383,13 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                 }
 
 TRAIN_PATH = "data\\train.csv"
-test_folder = "b"
+VALIDATE_PATH = "data\\validate.csv"
+test_folder = "c"
 lr = {"convolution": 0.001,
       "fully_connected": 0.001}
-os.mkdir(test_folder)
-train_convulational_nn(architecture, test_folder, lr=lr)
-
+# os.mkdir(test_folder)
+# train_convulational_nn(test_folder, architecture, lr=lr)
+train_convulational_nn(test_folder, architecture, validate=True)
 # c = np.arange(16).reshape(4, 4)
 # d = np.arange(9).reshape(3, 3)
 # print(c)
@@ -347,3 +404,7 @@ train_convulational_nn(architecture, test_folder, lr=lr)
 # print(g)
 # print(signal.correlate(last_layer_error, weights, mode='same').sum(axis=0))
 
+# weights = get_validate_weights(architecture, test_folder, epoch_number=0)
+# l = list(weights['con_weights'])
+# x = 1
+# x = 2
