@@ -95,11 +95,11 @@ def get_random_matrix(row_size, col_size):
 
 def get_random_convolution_weights(level_features_map_number, next_level_feature_maps_number,first_layer_size, second_layer_size, kernel_size):
     # xavier random:
-    # return (sqrt(6) / sqrt(((first_layer_size + second_layer_size)*level_features_map_number))) * \
+    # return (sqrt(6) / sqrt(first_layer_size*9 + second_layer_size*level_features_map_number)) * \
     #        np.random.randn(next_level_feature_maps_number, level_features_map_number, kernel_size, kernel_size)
 
     # He-Noramlize random
-    return sqrt(2 / ((first_layer_size + second_layer_size)*level_features_map_number)) * \
+    return sqrt(2 / (first_layer_size*9*level_features_map_number)) * \
                np.random.randn(next_level_feature_maps_number, level_features_map_number, kernel_size, kernel_size)
 
 def print_output_str(test_folder, epoch_number, correct_predict, lr=False, validate=False):
@@ -201,7 +201,8 @@ def convolutional_forward_propagation(architecture, input_features, weights):
         # convolution
         con_layer = np.zeros((con_layer_size, size, size))
         for feature_next_layer_number in range(con_layer_size):
-            con_layer[feature_next_layer_number] = signal.correlate(last_layer, weights[level-1][feature_next_layer_number], mode='same').sum(axis=0)
+            for feature_this_layer_number in range(len(last_layer)):
+                con_layer[feature_next_layer_number] += signal.correlate2d(last_layer[feature_this_layer_number], weights[level-1][feature_next_layer_number][feature_this_layer_number], mode='same').sum(axis=0)
             # con_layer[feature_next_layer_number] = np.maximum(con_layer[feature_next_layer_number], 0) # ReLU
         con_layer = np.maximum(con_layer, 0) # ReLU
         layers[level]['convolution'] = con_layer
@@ -286,8 +287,9 @@ def specific_convolution_backward_propagation(old_weights, last_layer_error, pre
     previous_layer_error = np.zeros(previous_layer.shape)
     new_weights = np.empty(old_weights.shape)
     for previous_feature_map_number in range(previous_layer.shape[0]):
-        previous_layer_error[previous_feature_map_number] = signal.correlate(last_layer_error, old_weights_for_back[previous_feature_map_number], mode='same').sum(axis=0)
-        previous_layer_error[previous_feature_map_number] = (previous_layer[previous_feature_map_number]>0)*previous_layer_error[previous_feature_map_number]
+        for feature_last_layer_number in range(len(last_layer_error)):
+            temp = signal.correlate2d(last_layer_error[feature_last_layer_number], old_weights_for_back[previous_feature_map_number][feature_last_layer_number], mode='same').sum(axis=0)
+            previous_layer_error[previous_feature_map_number] += ((previous_layer[previous_feature_map_number]>0)*temp)
     for last_layer_map_number in range(len(last_layer_error)):
         shape = last_layer_error[last_layer_map_number].shape
         last_layer_error_according_weights = np.zeros((9,shape[0], shape[1]))
@@ -388,48 +390,35 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                     'max_pooling': {'kernel':2, 'stride':2}},
                 1: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 32},
                     'max_pooling': {'kernel':2, 'stride':2}},
-                # 2: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 64},
-                #     'max_pooling': {'kernel':2, 'stride':2}},
+                2: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 64},
+                    'max_pooling': {'kernel':2, 'stride':2}},
+                3: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 128},
+                    'max_pooling': {'kernel':2, 'stride':2}},
                 'flatten': [100, 10]
                 }
 
 TRAIN_PATH = "data\\train.csv"
 VALIDATE_PATH = "data\\validate.csv"
-test_folder = "e"
+test_folder = "i"
 lr = {"convolution": 0.001,
       "fully_connected": 0.001}
 os.mkdir(test_folder)
 train_convulational_nn(test_folder, architecture, lr=lr)
 # train_convulational_nn(test_folder, architecture, validate=True)
-# c = np.arange(16).reshape(4, 4)
-# d = np.arange(9).reshape(3, 3)
-# print(c)
-# print(d)
-# print(signal.convolve(d, c, mode='same'))
-# print(signal.convolve(d, c, mode='full'))
-# print(c)
-# print(d)
-# e = d[:,:,None,None]*c
-# print(e)
-# g = e.sum(axis=(2, 3))
-# print(g)
-# print(signal.correlate(last_layer_error, weights, mode='same').sum(axis=0))
 
-# weights = get_validate_weights(architecture, test_folder, epoch_number=0)
-# l = list(weights['con_weights'])
-# x = 1
-# x = 2
-# a = np.arange(16).reshape(4,4)
-# print(a)
-# print(a.shape)
-# b = np.zeros((9,a.shape[0], a.shape[1]))
-# b[0][:-1,:-1] = a[1:,1:]
-# b[1][:-1,:] = a[1:,:]
-# b[2][:-1, 1:] = a[1:, :-1]
-# b[3][:,:-1] = a[:,1:]
-# b[4] = a
-# b[5][:, 1:] = a[:, :-1]
-# b[6][1:, :-1] = a[:-1, 1:]
-# b[7][1:, :] = a[:-1, :]
-# b[8][1:, 1:] = a[:-1, :-1]
-# print(b)
+# last_layer = np.arange(48).reshape(3,4,4)
+# print(last_layer)
+# weights = np.arange(27).reshape(3,3,3)
+# print(weights)
+# last_layer = np.arange(16).reshape(4,4)
+# print(last_layer)
+# weights = np.arange(9).reshape(3,3)
+# print(weights)
+# feature_map_after_concolution = signal.correlate2d(last_layer, weights, mode='same')
+# print(feature_map_after_concolution)
+# feature_map_after_concolution = signal.correlate(last_layer, weights, mode='same', method='auto')
+# print(feature_map_after_concolution)
+
+
+# feature_map_after_concolution = feature_map_after_concolution.sum(axis=0)
+# print(feature_map_after_concolution)
