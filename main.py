@@ -35,9 +35,9 @@ def get_data_and_target(path):
     data = data.rename(columns=lambda c: c - 1).to_numpy()
     return data, target
 
-def get_validate_weights(test_folder, epoch_number=0):
+def get_weights_from_train(test_folder, epoch_number=0):
     weights = {}
-    con_weights_df = pd.read_csv(f"{test_folder}\\epoch_{epoch_number}_con_weigts.csv", index_col=0).values.tolist()
+    con_weights_df = pd.read_csv(f"{test_folder}\\epoch_{epoch_number}_con_weights.csv", index_col=0).values.tolist()
     weights['con_weights'] = []
     for i in range(len(con_weights_df)):
     # first_weights = ast.literal_eval(con_weights[0][0])
@@ -102,13 +102,13 @@ def get_random_convolution_weights(level_features_map_number, next_level_feature
     return sqrt(2 / (first_layer_size*9*level_features_map_number)) * \
                np.random.randn(next_level_feature_maps_number, level_features_map_number, kernel_size, kernel_size)
 
-def print_output_str(test_folder, epoch_number, correct_predict, lr=False, validate=False):
+def print_output_str(test_folder, epoch_number, correct_predict, num_of_rows, lr=False, validate=False):
     if validate:
-        output_str = f"in epoch_{epoch_number} the validation accuracy precents are {(correct_predict / 1000) * 100}%\n"
+        output_str = f"in epoch_{epoch_number} the validation accuracy precents are {(correct_predict / num_of_rows) * 100}%\n"
         with open(f"{test_folder}\\validate.txt", "a") as output_file:
             output_file.write(output_str)
     else:
-        output_str = f"in epoch_{epoch_number} the accuracy precents are {(correct_predict / 8000) * 100}%, with lr: {lr}\n"
+        output_str = f"in epoch_{epoch_number} the accuracy precents are {(correct_predict / num_of_rows) * 100}%, with lr: {lr}\n"
         with open(f"{test_folder}\\output_layer.txt", "a") as output_file:
             output_file.write(output_str)
 
@@ -332,18 +332,57 @@ def normalize_layer(input_features):
     return input_features
     # return (input_features-input_features.mean()) / input_features.std()
 
+def create_rotated_data():
+    train = pd.read_csv("data\\train.csv", header=None)  # header=None means that there are not columns' names in the csv
+    # divide to train and target data frames
+    target = train.loc[:, 0]  # first column
+    train = train.drop(columns=0)  # drop the first column
+    train = train.rename(columns=lambda c: c - 1).to_numpy()
+    for k in range(3): # rotate 3 times
+        for idx, row in enumerate(train):
+            with open("data\\rotated_and_mirror_data.csv", 'a') as file:
+                file.write(f"{target[idx]},")
+            layer = row.reshape(3, 32, 32)
+            rotated_layer = pd.DataFrame(data=np.rot90(layer, k=k, axes=(1, 2)).reshape(1,3072))
+            rotated_layer.to_csv("data\\rotated_and_mirror_data.csv", header=False, index=False, mode='a')
+        print(f"end {k} rotate")
 
-def train_convulational_nn(test_folder, architecture=None, lr=None, validate=False, normalize=False):
+    for idx, row in enumerate(train): # flip upside down
+        with open("data\\rotated_and_mirror_data.csv", 'a') as file:
+            file.write(f"{target[idx]},")
+        layer = row.reshape(3, 32, 32)
+        rotated_layer =  pd.DataFrame(data=np.flip(layer, 1).reshape(1,3072))
+        rotated_layer.to_csv("data\\rotated_and_mirror_data.csv", header=False, index=False, mode='a')
+    print("end first flip")
+
+    for idx, row in enumerate(train): # flip right
+        with open("data\\rotated_and_mirror_data.csv", 'a') as file:
+            file.write(f"{target[idx]},")
+        layer = row.reshape(3, 32, 32)
+        rotated_layer =  pd.DataFrame(data=np.flip(layer, 2).reshape(1,3072))
+        rotated_layer.to_csv("data\\rotated_and_mirror_data.csv", header=False, index=False, mode='a')
+    print("end second flip")
+
+
+
+
+
+
+def train_convulational_nn(test_folder, architecture=None, lr=None, validate=False, normalize=False, epoch_number=0):
     if validate:
-        weights = get_validate_weights(test_folder)
+        weights = get_weights_from_train(test_folder, epoch_number)
         data, target = get_data_and_target(VALIDATE_PATH)
     else:
-        weights = get_random_weights(architecture)
-        write_weights_to_csv(weights, test_folder, -1)
-        data, target = get_data_and_target(TRAIN_PATH)
+        if epoch_number == 0:
+            weights = get_random_weights(architecture)
+            write_weights_to_csv(weights, test_folder, -1)
+            data, target = get_data_and_target(TRAIN_PATH)
+        else:
+            weights = get_weights_from_train(test_folder, epoch_number)
+            data, target = get_data_and_target(TRAIN_PATH)
 
     input_list = get_features_maps_list_from_data(data)
-    epoch_number = 0
+
     """
     start training
     """
@@ -377,11 +416,11 @@ def train_convulational_nn(test_folder, architecture=None, lr=None, validate=Fal
 
         # after full epoch
         if validate:
-            print_output_str(test_folder, epoch_number, correct_predict, validate=True)
-            weights = get_validate_weights(test_folder, epoch_number=epoch_number+1)
+            print_output_str(test_folder, epoch_number, correct_predict, len(target), validate=True)
+            weights = get_weights_from_train(test_folder, epoch_number=epoch_number + 1)
         if not validate: # write accuracy precents and write weights to csvs
             write_weights_to_csv(weights, test_folder, epoch_number)
-            print_output_str(test_folder, epoch_number, correct_predict, lr=lr)
+            print_output_str(test_folder, epoch_number, correct_predict, len(target), lr=lr)
         epoch_number = epoch_number + 1
         # lr = 0.95 * lr
 
@@ -397,28 +436,25 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                 'flatten': [100, 10]
                 }
 
-TRAIN_PATH = "data\\train.csv"
+TRAIN_PATH = "data\\full_train.csv"
 VALIDATE_PATH = "data\\validate.csv"
 test_folder = "i"
 lr = {"convolution": 0.001,
       "fully_connected": 0.001}
-os.mkdir(test_folder)
-train_convulational_nn(test_folder, architecture, lr=lr)
-# train_convulational_nn(test_folder, architecture, validate=True)
+# create_rotated_data()
+# os.mkdir(test_folder)
+# train_convulational_nn(test_folder, architecture, lr=lr)
+train_convulational_nn(test_folder, architecture, validate=True, epoch_number=0)
 
-# last_layer = np.arange(48).reshape(3,4,4)
-# print(last_layer)
-# weights = np.arange(27).reshape(3,3,3)
-# print(weights)
-# last_layer = np.arange(16).reshape(4,4)
-# print(last_layer)
-# weights = np.arange(9).reshape(3,3)
-# print(weights)
-# feature_map_after_concolution = signal.correlate2d(last_layer, weights, mode='same')
-# print(feature_map_after_concolution)
-# feature_map_after_concolution = signal.correlate(last_layer, weights, mode='same', method='auto')
-# print(feature_map_after_concolution)
-
-
-# feature_map_after_concolution = feature_map_after_concolution.sum(axis=0)
-# print(feature_map_after_concolution)
+# a = np.arange(18).reshape(2,3,3)
+# print(a)
+# b = np.flip(a,2)
+# print(b)
+# b = b.reshape(1,18)
+# print(b)
+# b = pd.DataFrame(data=b)
+# print(b)
+# with open("more_data.csv", 'a') as file:
+#     file.write("2,")
+# b.to_csv("more_data.csv", header=False, index=False, mode='a')
+# print(pd.DataFrame(data=b).to_csv("more_data.csv", mode='a'))
