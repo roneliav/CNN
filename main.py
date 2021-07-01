@@ -43,6 +43,10 @@ def get_weights_from_train(test_folder, epoch_number=0):
     # first_weights = ast.literal_eval(con_weights[0][0])
         level_weights = con_weights_df[i][0]
         level_weights = level_weights.replace('\n','')
+        level_weights = level_weights.replace('          ', ',')
+        level_weights = level_weights.replace('         ', ',')
+        level_weights = level_weights.replace('        ', ',')
+        level_weights = level_weights.replace('       ', ',')
         level_weights = level_weights.replace('      ', ',')
         level_weights = level_weights.replace('     ', ',')
         level_weights = level_weights.replace('    ', ',')
@@ -59,6 +63,10 @@ def get_weights_from_train(test_folder, epoch_number=0):
         # first_weights = ast.literal_eval(con_weights[0][0])
         level_weights = fully_weights_df[i][0]
         level_weights = level_weights.replace('\n', '')
+        level_weights = level_weights.replace('          ', ',')
+        level_weights = level_weights.replace('         ', ',')
+        level_weights = level_weights.replace('        ', ',')
+        level_weights = level_weights.replace('       ', ',')
         level_weights = level_weights.replace('      ', ',')
         level_weights = level_weights.replace('     ', ',')
         level_weights = level_weights.replace('    ', ',')
@@ -283,12 +291,12 @@ def max_pooling_backward_propagation(last_layer_error, previous_layer):
 
 def specific_convolution_backward_propagation(old_weights, last_layer_error, previous_layer, lr):
     # return previous_layer error and the updated weights
-    old_weights_for_back = old_weights.transpose(1,0,2,3)
+    # old_weights_for_back = old_weights.transpose(1,0,2,3)
     previous_layer_error = np.zeros(previous_layer.shape)
     new_weights = np.empty(old_weights.shape)
     for previous_feature_map_number in range(previous_layer.shape[0]):
         for feature_last_layer_number in range(len(last_layer_error)):
-            temp = signal.correlate2d(last_layer_error[feature_last_layer_number], old_weights_for_back[previous_feature_map_number][feature_last_layer_number], mode='same').sum(axis=0)
+            temp = signal.correlate2d(last_layer_error[feature_last_layer_number], old_weights[feature_last_layer_number][previous_feature_map_number], mode='same')
             previous_layer_error[previous_feature_map_number] += ((previous_layer[previous_feature_map_number]>0)*temp)
     for last_layer_map_number in range(len(last_layer_error)):
         shape = last_layer_error[last_layer_map_number].shape
@@ -333,34 +341,35 @@ def normalize_layer(input_features):
     # return (input_features-input_features.mean()) / input_features.std()
 
 def create_rotated_data():
+    train = pd.read_csv("data\\train.csv", header=None).to_numpy()  # header=None means that there are not columns' names in the csv
+    for idx, row in enumerate(train):
+        with open("data\\rotated_and_mirror_data.csv", 'a') as file:
+            row = pd.DataFrame(data=row.reshape(1, 3073))
+            row.to_csv("data\\rotated_and_mirror_data.csv", header=False, index=False, mode='a')
+
     train = pd.read_csv("data\\train.csv", header=None)  # header=None means that there are not columns' names in the csv
     # divide to train and target data frames
     target = train.loc[:, 0]  # first column
     train = train.drop(columns=0)  # drop the first column
     train = train.rename(columns=lambda c: c - 1).to_numpy()
-    for k in range(3): # rotate 3 times
+    for k in range(1, 4): # rotate 3 times
         for idx, row in enumerate(train):
             with open("data\\rotated_and_mirror_data.csv", 'a') as file:
                 file.write(f"{target[idx]},")
-            layer = row.reshape(3, 32, 32)
-            rotated_layer = pd.DataFrame(data=np.rot90(layer, k=k, axes=(1, 2)).reshape(1,3072))
+            rotated_layer = row.reshape(3, 32, 32)
+            rotated_layer = pd.DataFrame(data=np.rot90(rotated_layer, k=k, axes=(1, 2)).reshape(1,3072))
             rotated_layer.to_csv("data\\rotated_and_mirror_data.csv", header=False, index=False, mode='a')
         print(f"end {k} rotate")
 
-    for idx, row in enumerate(train): # flip upside down
-        with open("data\\rotated_and_mirror_data.csv", 'a') as file:
-            file.write(f"{target[idx]},")
-        layer = row.reshape(3, 32, 32)
-        rotated_layer =  pd.DataFrame(data=np.flip(layer, 1).reshape(1,3072))
-        rotated_layer.to_csv("data\\rotated_and_mirror_data.csv", header=False, index=False, mode='a')
-    print("end first flip")
+    for k in range(0, 4):  # rotate 4 times after flip
+        for idx, row in enumerate(train): # flip right
+            with open("data\\rotated_and_mirror_data.csv", 'a') as file:
+                file.write(f"{target[idx]},")
+            layer = row.reshape(3, 32, 32)
+            flipped_and_rotated = np.rot90(np.flip(layer, 2), k=k, axes=(1,2)).reshape(1, 3072)
+            rotated_layer =  pd.DataFrame(data=flipped_and_rotated)
+            rotated_layer.to_csv("data\\rotated_and_mirror_data.csv", header=False, index=False, mode='a')
 
-    for idx, row in enumerate(train): # flip right
-        with open("data\\rotated_and_mirror_data.csv", 'a') as file:
-            file.write(f"{target[idx]},")
-        layer = row.reshape(3, 32, 32)
-        rotated_layer =  pd.DataFrame(data=np.flip(layer, 2).reshape(1,3072))
-        rotated_layer.to_csv("data\\rotated_and_mirror_data.csv", header=False, index=False, mode='a')
     print("end second flip")
 
 
@@ -431,20 +440,20 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                     'max_pooling': {'kernel':2, 'stride':2}},
                 2: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 64},
                     'max_pooling': {'kernel':2, 'stride':2}},
-                3: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 128},
-                    'max_pooling': {'kernel':2, 'stride':2}},
-                'flatten': [100, 10]
+                # 3: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 128},
+                #     'max_pooling': {'kernel':2, 'stride':2}},
+                'flatten': [1024, 1024, 10]
                 }
 
-TRAIN_PATH = "data\\full_train.csv"
+TRAIN_PATH = "data\\train.csv"
 VALIDATE_PATH = "data\\validate.csv"
-test_folder = "i"
+test_folder = "tt"
 lr = {"convolution": 0.001,
       "fully_connected": 0.001}
-# create_rotated_data()
+create_rotated_data()
 # os.mkdir(test_folder)
-# train_convulational_nn(test_folder, architecture, lr=lr)
-train_convulational_nn(test_folder, architecture, validate=True, epoch_number=0)
+# train_convulational_nn(test_folder, architecture, normalize=True, lr=lr)
+# train_convulational_nn(test_folder, architecture, normalize=True, validate=True, epoch_number=25)
 
 # a = np.arange(18).reshape(2,3,3)
 # print(a)
