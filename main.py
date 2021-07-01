@@ -30,7 +30,7 @@ weights = {'con_weights':
 def get_data_and_target(path):
     data = pd.read_csv(path, header=None)  # header=None means that there are not columns' names in the csv
     # divide to train and target data frames
-    target = data.loc[:, 0]  # first column
+    target = data.loc[:, 0].astype(int)  # first column
     data = data.drop(columns=0)  # drop the first column
     data = data.rename(columns=lambda c: c - 1).to_numpy()
     return data, target
@@ -210,7 +210,7 @@ def convolutional_forward_propagation(architecture, input_features, weights):
         con_layer = np.zeros((con_layer_size, size, size))
         for feature_next_layer_number in range(con_layer_size):
             for feature_this_layer_number in range(len(last_layer)):
-                con_layer[feature_next_layer_number] += signal.correlate2d(last_layer[feature_this_layer_number], weights[level-1][feature_next_layer_number][feature_this_layer_number], mode='same').sum(axis=0)
+                con_layer[feature_next_layer_number] += signal.correlate2d(last_layer[feature_this_layer_number], weights[level-1][feature_next_layer_number][feature_this_layer_number], mode='same')
             # con_layer[feature_next_layer_number] = np.maximum(con_layer[feature_next_layer_number], 0) # ReLU
         con_layer = np.maximum(con_layer, 0) # ReLU
         layers[level]['convolution'] = con_layer
@@ -423,6 +423,10 @@ def train_convulational_nn(test_folder, architecture=None, lr=None, validate=Fal
                 weights = full_backward_propagation(weights, error_output, layers, lr)
             print(f"row {i},  {time.time() - start_time} second\n")
 
+            if (((row_number + 1) % 8000) == 0) and (not validate):  # write accuracy precents and write weights to csvs
+                write_weights_to_csv(weights, test_folder, f"{epoch_number}_{int((row_number + 1) / 8000)}")
+                print_output_str(test_folder, epoch_number, correct_predict, row_number+1, lr=lr)
+
         # after full epoch
         if validate:
             print_output_str(test_folder, epoch_number, correct_predict, len(target), validate=True)
@@ -442,18 +446,18 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                     'max_pooling': {'kernel':2, 'stride':2}},
                 # 3: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 128},
                 #     'max_pooling': {'kernel':2, 'stride':2}},
-                'flatten': [1024, 1024, 10]
+                'flatten': [100, 10]
                 }
 
-TRAIN_PATH = "data\\train.csv"
+TRAIN_PATH = "data\\full_train.csv"
 VALIDATE_PATH = "data\\validate.csv"
-test_folder = "tt"
-lr = {"convolution": 0.001,
-      "fully_connected": 0.001}
-create_rotated_data()
+test_folder = "y"
+lr = {"convolution": 0.01,
+      "fully_connected": 0.01}
+# create_rotated_data()
 # os.mkdir(test_folder)
 # train_convulational_nn(test_folder, architecture, normalize=True, lr=lr)
-# train_convulational_nn(test_folder, architecture, normalize=True, validate=True, epoch_number=25)
+train_convulational_nn(test_folder, architecture, normalize=True, validate=True)
 
 # a = np.arange(18).reshape(2,3,3)
 # print(a)
