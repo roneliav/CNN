@@ -136,7 +136,10 @@ def write_weights_to_csv(weights, test_folder, epoch_number):
     pd.DataFrame(data=weights['fully_weights']).to_csv(f"{test_folder}\\epoch_{epoch_number}_fully_weights.csv")
 
 def get_predicted_result_from_output_layer(output_layer):
-    return np.where(output_layer == output_layer.max())[0][0] + 1
+    try:
+        return np.where(output_layer == output_layer.max())[0][0] + 1
+    except:
+        print("dd")
 
 def get_error_output(output_layer, target_of_this_row):
     target_layer = np.zeros(output_layer.shape)
@@ -185,7 +188,7 @@ def get_convolution_feature_map_size_in_level(architecture, level):
         after_convolution_col_size = fetaure_map_columns_size - should_padd
         if lev == level:
             break
-        num_features_map = architecture[level]['convolution']['features_map']
+        # num_features_map = architecture[level]['convolution']['features_map']
         fetaure_map_rows_size = after_convolution_row_size / architecture[level]['max_pooling']['kernel']
         fetaure_map_columns_size = after_convolution_col_size / architecture[level]['max_pooling']['kernel']
     return int(after_convolution_row_size)
@@ -200,7 +203,7 @@ def max_pooling_one_feature(feature_map, size_of_new_feature_map):
     return new_feature_map
 
 
-def convolutional_forward_propagation(architecture, input_features, weights):
+def convolutional_forward_propagation(architecture, input_features, weights, batch_normalization):
     # layers = list, each item is ndarray in shape according architecture
     layers = [None]*(len(architecture))
     layers[0] = {'max_pooling': input_features} # for bacward propagation
@@ -214,8 +217,9 @@ def convolutional_forward_propagation(architecture, input_features, weights):
         for feature_next_layer_number in range(con_layer_size):
             for feature_this_layer_number in range(len(last_layer)):
                 con_layer[feature_next_layer_number] += signal.correlate2d(last_layer[feature_this_layer_number], weights[level-1][feature_next_layer_number][feature_this_layer_number], mode='same')
-            # con_layer[feature_next_layer_number] = np.maximum(con_layer[feature_next_layer_number], 0) # ReLU
         con_layer = np.maximum(con_layer, 0) # ReLU
+        if batch_normalization:
+            con_layer = normalize_layer(con_layer) # batch normalize
         layers[level]['convolution'] = con_layer
 
         # max-pooling
@@ -251,7 +255,7 @@ def fully_connected_forward_propagation(input_layer, weights):
         layers[layer_number] = fully_connected_forward_propagation_one_level(layers[layer_number - 1], weights[layer_number - 1], last=layer_number == num_of_weights)
     return layers, layers[layer_number]
 
-def full_forward_propagation(architecture, input_features, weights):
+def full_forward_propagation(architecture, input_features, weights, batch_normalization):
     # weights = {'con_weights':.... ,  'fully_weights': .... }
     layers = {'convolution': convolutional_forward_propagation(architecture, input_features, weights['con_weights'])}
     fully_connected_layer = get_flatten_from_convolution_layers(layers['convolution'])
@@ -294,7 +298,6 @@ def max_pooling_backward_propagation(last_layer_error, previous_layer):
 
 def specific_convolution_backward_propagation(old_weights, last_layer_error, previous_layer, lr):
     # return previous_layer error and the updated weights
-    # old_weights_for_back = old_weights.transpose(1,0,2,3)
     previous_layer_error = np.zeros(previous_layer.shape)
     new_weights = np.empty(old_weights.shape)
     for previous_feature_map_number in range(previous_layer.shape[0]):
@@ -335,12 +338,21 @@ def full_backward_propagation(weights, error_output, layers, lr):
     new_weights['con_weights'] = convolutional_backward_propagation(weights['con_weights'], last_features_map_layer, layers['convolution'], lr['convolution'])
     return new_weights
 
-def normalize_layer(input_features):
-    # from sklearn.preprocessing import StandardScaler
-    for i in range(len(input_features)):
-        # input_features[i] = StandardScaler().fit_transform(input_features[i])
-        input_features[i] = (input_features[i]-input_features[i].mean()) / input_features[i].std()
-    return input_features
+def normalize_layer(features):
+    for i in range(len(features)):
+        if features[i].std() != 0:
+            features[i] = (features[i] - features[i].mean()) / features[i].std()
+        else:
+            features[i] = 0
+
+    # for i in range(len(features)):
+    #     try:
+    #         norm = np.linalg.norm(features[i])
+    #         features[i] = features[i] / norm
+    #     except:
+    #         print("ll")
+
+    return features
     # return (input_features-input_features.mean()) / input_features.std()
 
 def create_rotated_data(train_path, augmented_data_path):
@@ -390,7 +402,7 @@ def create_rotated_data(train_path, augmented_data_path):
 
 
 
-def train_convulational_nn(test_folder, architecture=None, lr=None, validate=False, normalize=False, epoch_number=0, multi_validate=False):
+def train_convulational_nn(test_folder, architecture=None, lr=None, validate=False, normalize=False, epoch_number=0, multi_validate=False, batch_normalization=False):
     if multi_validate:
         mv = 1
         weights = get_weights_from_train(test_folder, epoch_number=f"{epoch_number}_{mv}")
@@ -423,7 +435,7 @@ def train_convulational_nn(test_folder, architecture=None, lr=None, validate=Fal
                 input_features = normalize_layer(input_features)
             target_of_this_raw = target[row_number]
             # forward propagation
-            layers, output_layer = full_forward_propagation(architecture, input_features, weights)
+            layers, output_layer = full_forward_propagation(architecture, input_features, weights, batch_normalization)
 
             predicted_result = get_predicted_result_from_output_layer(output_layer)
 
@@ -460,7 +472,8 @@ def train_convulational_nn(test_folder, architecture=None, lr=None, validate=Fal
             write_weights_to_csv(weights, test_folder, epoch_number)
             print_output_str(test_folder, epoch_number, correct_predict, len(target), lr=lr)
             epoch_number = epoch_number + 1
-        # lr = 0.95 * lr
+            lr['convolution'] = 0.95 *  lr['convolution']
+            lr['fully_connected'] = 0.95 *  lr['fully_connected']
 
 
 architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 16},
@@ -474,17 +487,17 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                 'flatten': [250, 10]
                 }
 
-TRAIN_PATH = "data\\normal_and_mirror_data.csv"
+TRAIN_PATH = "data\\train.csv"
 VALIDATE_PATH = "data\\validate.csv"
-test_folder = "s"
+test_folder = "b"
 lr = {"convolution": 0.01,
       "fully_connected": 0.01}
 
 # create_rotated_data("data\\train.csv", "data\\normal_and_mirror_data.csv")
-# os.mkdir(test_folder)
-# train_convulational_nn(test_folder, architecture, normalize=True, lr=lr)
-# train_convulational_nn(test_folder, architecture, normalize=True, validate=True)
-train_convulational_nn(test_folder, architecture, normalize=True, multi_validate=True, epoch_number=2)
+os.mkdir(test_folder)
+train_convulational_nn(test_folder, architecture, normalize=True, lr=lr, batch_normalization=True)
+# train_convulational_nn(test_folder, architecture, normalize=True, validate=True, epoch_number=19)
+# train_convulational_nn(test_folder, architecture, normalize=True, multi_validate=True, epoch_number=2)
 
 # a = np.arange(18).reshape(2,3,3)
 # print(a)
