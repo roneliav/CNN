@@ -11,7 +11,7 @@ import ast
 # pd.set_option('display.width', None)
 # pd.set_option('display.max_colwidth', None)
 np.set_printoptions(threshold=sys.maxsize)
-
+np.random.seed(42)
 """
 archtitecture: a doctionaty
 architecture = {0: [{'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 16},
@@ -141,10 +141,16 @@ def get_predicted_result_from_output_layer(output_layer):
     except:
         print("dd")
 
+def softmax_der(layer):
+    # Reshape the 1-d softmax to 2-d so that np.dot will do the matrix multiplication
+    dev = layer.reshape(-1,1)
+    return (np.diagflat(dev) - np.dot(dev, dev.T)).diagonal()
+
 def get_error_output(output_layer, target_of_this_row):
+    output_layer_after_der = softmax_der(output_layer)
     target_layer = np.zeros(output_layer.shape)
     target_layer[target_of_this_row - 1] = 1
-    error_output = target_layer - output_layer
+    error_output = target_layer - output_layer_after_der
     return error_output
 
 def get_weights_to_convolution_level(architecture, level):
@@ -234,33 +240,55 @@ def convolutional_forward_propagation(architecture, input_features, weights, bat
 def get_flatten_from_convolution_layers(layers):
     return layers[-1]['max_pooling'].flatten()
 
-def fully_connected_forward_propagation_one_level(layer, weights, last=False):
+def get_dropout_layer(layer, dropout_percent):
+    num_of_zeros = int(layer.shape[0] * dropout_percent)
+    dropout_vector = np.ones(layer.shape)
+    dropout_vector[:num_of_zeros] = 0
+    np.random.shuffle(dropout_vector)
+    return dropout_vector * layer
+
+def fully_connected_forward_propagation_one_level(layer, weights, dropout=None, validate=False, last=False):
+    if validate and dropout != None:
+        weights = weights * (1-dropout)
     next_layer = weights * layer[:, np.newaxis]
     next_layer = next_layer.sum(axis=0)
-    next_layer = np.maximum(next_layer, 0) # ReLU
     if not last:
+        next_layer = np.maximum(next_layer, 0) # ReLU
+
+        if dropout != None and not validate:
+            next_layer = get_dropout_layer(next_layer, dropout)
         next_layer[next_layer.shape[0] - 1] = -1  # bias unit
     return next_layer
 
-def fully_connected_forward_propagation(input_layer, weights):
+def softmax(layer):
+    return np.exp(layer) / np.sum(np.exp(layer), axis=0)
+
+def fully_connected_forward_propagation(input_layer, weights, dropout, validate):
     # fully_connected_architecture = [100, 10]
     num_of_weights = len(weights)
     layers = {}
     layer_number = 0
+    if not validate:
+        input_layer = get_dropout_layer(input_layer, dropout[0])
     layers[layer_number] = input_layer  # one raw in csv
+    if validate:
+        dropout.insert(0, None) # the list will be one step forward for dropouting the weights and not the kayer before
+    else:
+        dropout.append(None) # one more element for last iteration in the for loop
     # if noise_percent:
     #     layers[layer_number] = make_noise(layers[layer_number], noise_percent)
     layers[layer_number] = np.append(layers[layer_number], [-1])  # bias unit
     for layer_number in range(1, num_of_weights + 1):
-        layers[layer_number] = fully_connected_forward_propagation_one_level(layers[layer_number - 1], weights[layer_number - 1], last=layer_number == num_of_weights)
+        layers[layer_number] = fully_connected_forward_propagation_one_level(layers[layer_number-1], weights[layer_number-1], dropout=dropout[layer_number], validate=validate, last=layer_number == num_of_weights)
+    layers[layer_number] = softmax(layers[layer_number])
     return layers, layers[layer_number]
 
-def full_forward_propagation(architecture, input_features, weights, batch_normalization):
+def full_forward_propagation(architecture, input_features, weights, batch_normalization, dropout, validate):
     # weights = {'con_weights':.... ,  'fully_weights': .... }
-    layers = {'convolution': convolutional_forward_propagation(architecture, input_features, weights['con_weights'])}
+    layers = {'convolution': convolutional_forward_propagation(architecture, input_features, weights['con_weights'], batch_normalization)}
     fully_connected_layer = get_flatten_from_convolution_layers(layers['convolution'])
     # fully_connected_layer - normalize_input_layer(fully_connected_layer)
-    layers['fully_connected'], output_layer = fully_connected_forward_propagation(fully_connected_layer, weights['fully_weights'])
+    layers['fully_connected'], output_layer = fully_connected_forward_propagation(fully_connected_layer, weights['fully_weights'], dropout, validate)
     return layers, output_layer
 
 def get_output_layer_from_layers(layers):
@@ -270,7 +298,8 @@ def backpropagation_one_weights(old_weights, layer, above_layer_error, lr):
     above_layer_rows = above_layer_error.shape[0]
     layer_n = layer
     layer_rows = layer_n.shape[0]
-    new_weights = old_weights + (layer_n.reshape(layer_rows, 1) * above_layer_error.reshape(1, above_layer_rows) * lr)
+    # new_weights = old_weights + (layer_n.reshape(layer_rows, 1) * above_layer_error.reshape(1, above_layer_rows) * lr)
+    new_weights = (layer_n.reshape(layer_rows, 1) * above_layer_error.reshape(1, above_layer_rows) * lr)
     error_layer = ((layer > 0) *1).reshape(layer_rows, 1) * ((old_weights * above_layer_error.reshape(1, above_layer_rows)).sum(axis=1)).reshape(layer_rows, 1)
     return new_weights, error_layer
 
@@ -319,7 +348,8 @@ def specific_convolution_backward_propagation(old_weights, last_layer_error, pre
         multiple_errors_by_previous_layer = previous_layer[None,:,:,:]*last_layer_error_according_weights[:,None,:,:]
         sum_errors_of_each_featre_map = multiple_errors_by_previous_layer.sum(axis=(2,3))
         delta_weights = sum_errors_of_each_featre_map.transpose(1,0).reshape((previous_layer.shape[0],3,3))
-        new_weights[last_layer_map_number] = old_weights[last_layer_map_number] + lr * delta_weights
+        # new_weights[last_layer_map_number] = old_weights[last_layer_map_number] + lr * delta_weights
+        new_weights[last_layer_map_number] = lr * delta_weights
     return new_weights, previous_layer_error
 
 
@@ -400,9 +430,16 @@ def create_rotated_data(train_path, augmented_data_path):
         rotated_layer = pd.DataFrame(data=flipped_and_rotated)
         rotated_layer.to_csv(augmented_data_path, header=False, index=False, mode='a')
 
+def add_weights(weights, delta_weights):
+    if weights == None:
+        return delta_weights
+    for level in range(len(weights['con_weights'])):
+        weights['con_weights'][level] = weights['con_weights'][level] + delta_weights['con_weights'][level]
+    for level in range(len(weights['fully_weights'])):
+        weights['fully_weights'][level] = weights['fully_weights'][level] + delta_weights['fully_weights'][level]
+    return weights
 
-
-def train_convulational_nn(test_folder, architecture=None, lr=None, validate=False, normalize=False, epoch_number=0, multi_validate=False, batch_normalization=False):
+def train_convulational_nn(test_folder, architecture, dropout, lr=None, validate=False, normalize=False, epoch_number=0, multi_validate=False, batch_normalization=False, batch_size=None):
     if multi_validate:
         mv = 1
         weights = get_weights_from_train(test_folder, epoch_number=f"{epoch_number}_{mv}")
@@ -427,6 +464,7 @@ def train_convulational_nn(test_folder, architecture=None, lr=None, validate=Fal
     """
     while True:  # one epoch for each loop
         correct_predict = 0
+        delta_weights = None
         start_time = time.time()
         for i in range(len(target)):
             row_number = i
@@ -435,7 +473,7 @@ def train_convulational_nn(test_folder, architecture=None, lr=None, validate=Fal
                 input_features = normalize_layer(input_features)
             target_of_this_raw = target[row_number]
             # forward propagation
-            layers, output_layer = full_forward_propagation(architecture, input_features, weights, batch_normalization)
+            layers, output_layer = full_forward_propagation(architecture, input_features, weights, batch_normalization, dropout, validate=(validate or multi_validate))
 
             predicted_result = get_predicted_result_from_output_layer(output_layer)
 
@@ -449,7 +487,12 @@ def train_convulational_nn(test_folder, architecture=None, lr=None, validate=Fal
             if not validate and not multi_validate:  # calculate output error
                 error_output = get_error_output(output_layer, target_of_this_raw)
                 # backward propagation
-                weights = full_backward_propagation(weights, error_output, layers, lr)
+                tmp = full_backward_propagation(weights, error_output, layers, lr)
+                delta_weights = add_weights(delta_weights, tmp)
+                if (row_number + 1) % batch_size == 0:
+                    print("update weights")
+                    weights = add_weights(weights, delta_weights)
+                    delta_weights = None
             print(f"row {i},  {time.time() - start_time} second\n")
 
             if (((row_number + 1) % 8000) == 0) and (not validate) and (not multi_validate):  # write accuracy precents and write weights to csvs
@@ -476,26 +519,28 @@ def train_convulational_nn(test_folder, architecture=None, lr=None, validate=Fal
             lr['fully_connected'] = 0.95 *  lr['fully_connected']
 
 
-architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 16},
+architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 50},
                     'max_pooling': {'kernel':2, 'stride':2}},
-                1: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 32},
+                1: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 75},
                     'max_pooling': {'kernel':2, 'stride':2}},
-                2: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 64},
+                2: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 125},
                     'max_pooling': {'kernel':2, 'stride':2}},
                 # 3: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 128},
                 #     'max_pooling': {'kernel':2, 'stride':2}},
-                'flatten': [250, 10]
+                'flatten': [500, 250, 10]
                 }
+
+dropout = [0.25, 0.4, 0.3]
 
 TRAIN_PATH = "data\\train.csv"
 VALIDATE_PATH = "data\\validate.csv"
-test_folder = "b"
+test_folder = "q"
 lr = {"convolution": 0.01,
       "fully_connected": 0.01}
 
 # create_rotated_data("data\\train.csv", "data\\normal_and_mirror_data.csv")
-os.mkdir(test_folder)
-train_convulational_nn(test_folder, architecture, normalize=True, lr=lr, batch_normalization=True)
+# os.mkdir(test_folder)
+train_convulational_nn(test_folder, architecture, normalize=True, lr=lr, batch_size=50, dropout=dropout)
 # train_convulational_nn(test_folder, architecture, normalize=True, validate=True, epoch_number=19)
 # train_convulational_nn(test_folder, architecture, normalize=True, multi_validate=True, epoch_number=2)
 
