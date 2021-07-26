@@ -11,7 +11,7 @@ import ast
 # pd.set_option('display.width', None)
 # pd.set_option('display.max_colwidth', None)
 np.set_printoptions(threshold=sys.maxsize)
-np.random.seed(42)
+# np.random.seed(42)
 """
 archtitecture: a doctionaty
 architecture = {0: [{'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':'ReLU', 'features_map': 16},
@@ -140,6 +140,7 @@ def get_predicted_result_from_output_layer(output_layer):
         return np.where(output_layer == output_layer.max())[0][0] + 1
     except:
         print("dd")
+        print(output_layer)
 
 def softmax_der(layer):
     # Reshape the 1-d softmax to 2-d so that np.dot will do the matrix multiplication
@@ -147,10 +148,11 @@ def softmax_der(layer):
     return (np.diagflat(dev) - np.dot(dev, dev.T)).diagonal()
 
 def get_error_output(output_layer, target_of_this_row):
-    output_layer_after_der = softmax_der(output_layer)
+    # output_layer_after_der = softmax_der(output_layer)
     target_layer = np.zeros(output_layer.shape)
     target_layer[target_of_this_row - 1] = 1
-    error_output = target_layer - output_layer_after_der
+    error_output = target_layer - output_layer
+    # error_output = (target_layer - output_layer) * output_layer_after_der
     return error_output
 
 def get_weights_to_convolution_level(architecture, level):
@@ -166,7 +168,9 @@ def get_random_weights(architecture):
     weights['con_weights'] = []
     for level in range(len(architecture)-1): # initialize wieghts for convolutional
         # matrix_size = architecture[level]['convolution']['kernel']
+        # np.append(weights['con_weights'], get_weights_to_convolution_level(architecture, level), axis=0)
         weights['con_weights'].append(get_weights_to_convolution_level(architecture, level))
+    weights['con_weights'] = np.array(weights['con_weights'])
     weights['fully_weights'] = []
     row_size = get_level_shape_from_architecture(architecture, len(architecture)-1, return_size=1) + 1 # one more for bias
     for level in range(len(architecture['flatten'])-1):
@@ -174,6 +178,7 @@ def get_random_weights(architecture):
         weights['fully_weights'].append(get_random_matrix(row_size, col_size))
         row_size = col_size
     weights['fully_weights'].append(get_random_matrix(row_size, architecture['flatten'][-1])) # output layer without bias
+    weights['fully_weights'] = np.array(weights['fully_weights'])
     return weights
 
 def get_features_maps_list_from_data(data):
@@ -248,15 +253,15 @@ def get_dropout_layer(layer, dropout_percent):
     return dropout_vector * layer
 
 def fully_connected_forward_propagation_one_level(layer, weights, dropout=None, validate=False, last=False):
-    if validate and dropout != None:
-        weights = weights * (1-dropout)
+    # if validate and dropout != None:
+    #     weights = weights * (1-dropout)
     next_layer = weights * layer[:, np.newaxis]
     next_layer = next_layer.sum(axis=0)
     if not last:
         next_layer = np.maximum(next_layer, 0) # ReLU
 
-        if dropout != None and not validate:
-            next_layer = get_dropout_layer(next_layer, dropout)
+        # if dropout != None and not validate:
+        #     next_layer = get_dropout_layer(next_layer, dropout)
         next_layer[next_layer.shape[0] - 1] = -1  # bias unit
     return next_layer
 
@@ -265,16 +270,17 @@ def softmax(layer):
 
 def fully_connected_forward_propagation(input_layer, weights, dropout, validate):
     # fully_connected_architecture = [100, 10]
+    # dropout = [0.25, 0.45, None]
     num_of_weights = len(weights)
     layers = {}
     layer_number = 0
-    if not validate:
-        input_layer = get_dropout_layer(input_layer, dropout[0])
+    # if not validate:
+    #     input_layer = get_dropout_layer(input_layer, dropout[0])
     layers[layer_number] = input_layer  # one raw in csv
-    if validate:
-        dropout.insert(0, None) # the list will be one step forward for dropouting the weights and not the kayer before
-    else:
-        dropout.append(None) # one more element for last iteration in the for loop
+    # if validate:
+    #     dropout.insert(0, None) # the list will be one step forward for dropouting the weights and not the kayer before
+    # else:
+    #     dropout.append(None) # one more element for last iteration in the for loop
     # if noise_percent:
     #     layers[layer_number] = make_noise(layers[layer_number], noise_percent)
     layers[layer_number] = np.append(layers[layer_number], [-1])  # bias unit
@@ -287,7 +293,7 @@ def full_forward_propagation(architecture, input_features, weights, batch_normal
     # weights = {'con_weights':.... ,  'fully_weights': .... }
     layers = {'convolution': convolutional_forward_propagation(architecture, input_features, weights['con_weights'], batch_normalization)}
     fully_connected_layer = get_flatten_from_convolution_layers(layers['convolution'])
-    # fully_connected_layer - normalize_input_layer(fully_connected_layer)
+    # fully_connected_layer = normalize_input_layer(fully_connected_layer)
     layers['fully_connected'], output_layer = fully_connected_forward_propagation(fully_connected_layer, weights['fully_weights'], dropout, validate)
     return layers, output_layer
 
@@ -305,7 +311,7 @@ def backpropagation_one_weights(old_weights, layer, above_layer_error, lr):
 
 def fully_connected_backward_propagation(weights, error_output, layers, lr):
     num_of_weights = len(weights)
-    updated_weights = {}
+    updated_weights = [None]*len(weights)
     above_layer_error = error_output
     for layer_number in range(num_of_weights - 1, -1, -1):
         updated_weights[layer_number], above_layer_error = backpropagation_one_weights(weights[layer_number], layers[layer_number], above_layer_error, lr)
@@ -355,11 +361,12 @@ def specific_convolution_backward_propagation(old_weights, last_layer_error, pre
 
 def convolutional_backward_propagation(weights, output_layer_error, layers, lr):
     last_layer_error = output_layer_error
+    new_weights = [None]*len(weights)
     for i in range(len(weights), 0, -1):
         convolution_layer_error = max_pooling_backward_propagation(last_layer_error, layers[i]['convolution'])
-        weights[i-1], layer_error = specific_convolution_backward_propagation(weights[i-1], convolution_layer_error, layers[i-1]['max_pooling'], lr)
+        new_weights[i-1], layer_error = specific_convolution_backward_propagation(weights[i-1], convolution_layer_error, layers[i-1]['max_pooling'], lr)
         last_layer_error = layer_error
-    return weights
+    return new_weights
 
 def full_backward_propagation(weights, error_output, layers, lr):
     new_weights = {}
@@ -430,33 +437,46 @@ def create_rotated_data(train_path, augmented_data_path):
         rotated_layer = pd.DataFrame(data=flipped_and_rotated)
         rotated_layer.to_csv(augmented_data_path, header=False, index=False, mode='a')
 
-def add_weights(weights, delta_weights):
-    if weights == None:
-        return delta_weights
-    for level in range(len(weights['con_weights'])):
-        weights['con_weights'][level] = weights['con_weights'][level] + delta_weights['con_weights'][level]
-    for level in range(len(weights['fully_weights'])):
-        weights['fully_weights'][level] = weights['fully_weights'][level] + delta_weights['fully_weights'][level]
-    return weights
+def add_weights(basic_weights, delta_weights):
+    if basic_weights == None:
+        return delta_weights.copy()
+    basic_weights['con_weights'] = np.array(basic_weights['con_weights']) + np.array(delta_weights['con_weights'])
+    basic_weights['fully_weights'] = np.array(basic_weights['fully_weights']) + np.array(delta_weights['fully_weights'])
+    # for level in range(len(basic_weights['con_weights'])):
+    #     basic_weights['con_weights'][level] = np.array(basic_weights['con_weights'][level]) + np.array(delta_weights['con_weights'][level])
+    # for level in range(len(basic_weights['fully_weights'])):
+    #     basic_weights['fully_weights'][level] = np.array(basic_weights['fully_weights'][level]) + np.array(delta_weights['fully_weights'][level])
+    # assert(basic_weights['con_weights'][0].shape == delta_weights['con_weights'][0].shape)
+    # assert(basic_weights['fully_weights'][0].shape == delta_weights['fully_weights'][0].shape)
+    return basic_weights.copy()
 
-def train_convulational_nn(test_folder, architecture, dropout, lr=None, validate=False, normalize=False, epoch_number=0, multi_validate=False, batch_normalization=False, batch_size=None):
+def get_begin_info(test_folder, architecture, epoch_number, validate, multi_validate):
     if multi_validate:
+        if epoch_number == None:
+            epoch_number = 0
         mv = 1
         weights = get_weights_from_train(test_folder, epoch_number=f"{epoch_number}_{mv}")
         data, target = get_data_and_target(VALIDATE_PATH)
     elif validate:
+        if epoch_number == None:
+            epoch_number = 0
         weights = get_weights_from_train(test_folder, epoch_number)
         data, target = get_data_and_target(VALIDATE_PATH)
     else:
-        if epoch_number == 0:
+        if epoch_number == None:
             weights = get_random_weights(architecture)
             write_weights_to_csv(weights, test_folder, -1)
             data, target = get_data_and_target(TRAIN_PATH)
+            epoch_number = 0
         else:
             weights = get_weights_from_train(test_folder, epoch_number)
             epoch_number += 1
             data, target = get_data_and_target(TRAIN_PATH)
+    return data, target, weights, epoch_number
 
+
+def train_convulational_nn(test_folder, architecture, dropout, lr=None, validate=False, normalize=False, epoch_number=None, multi_validate=False, batch_normalization=False, batch_size=None):
+    data, target, weights, epoch_number = get_begin_info(test_folder, architecture, epoch_number, validate, multi_validate)
     input_list = get_features_maps_list_from_data(data)
 
     """
@@ -477,17 +497,18 @@ def train_convulational_nn(test_folder, architecture, dropout, lr=None, validate
 
             predicted_result = get_predicted_result_from_output_layer(output_layer)
 
-            """
-            print and check output
-            """
+            # print and check output
             print(f"excepted: {target_of_this_raw}, got {predicted_result}")
             if target_of_this_raw == predicted_result:
                 correct_predict += 1
 
             if not validate and not multi_validate:  # calculate output error
+                if (row_number == 1001):
+                    print("y")
                 error_output = get_error_output(output_layer, target_of_this_raw)
                 # backward propagation
                 tmp = full_backward_propagation(weights, error_output, layers, lr)
+                # write_weights_to_csv(tmp, test_folder, f"{epoch_number}_{row_number}")
                 delta_weights = add_weights(delta_weights, tmp)
                 if (row_number + 1) % batch_size == 0:
                     print("update weights")
@@ -530,29 +551,23 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                 'flatten': [500, 250, 10]
                 }
 
-dropout = [0.25, 0.4, 0.3]
+dropout = [0.25, 0.4, 0.3, None]
+# dropout = [0, 0, 0, None]
 
 TRAIN_PATH = "data\\train.csv"
 VALIDATE_PATH = "data\\validate.csv"
-test_folder = "q"
+test_folder = "tt"
 lr = {"convolution": 0.01,
       "fully_connected": 0.01}
 
 # create_rotated_data("data\\train.csv", "data\\normal_and_mirror_data.csv")
 # os.mkdir(test_folder)
 train_convulational_nn(test_folder, architecture, normalize=True, lr=lr, batch_size=50, dropout=dropout)
-# train_convulational_nn(test_folder, architecture, normalize=True, validate=True, epoch_number=19)
+# train_convulational_nn(test_folder, architecture, normalize=True, validate=True, dropout=dropout, epoch_number=23)
 # train_convulational_nn(test_folder, architecture, normalize=True, multi_validate=True, epoch_number=2)
 
-# a = np.arange(18).reshape(2,3,3)
+# a = {'con_weights':{0:[1,2], 1:[1,2]}, 'fully_weights':{0:[1,2], 1:[1,2]}}
+# b = {'con_weights':{0:[1,1], 1:[1,1]}, 'fully_weights':{0:[1,1], 1:[1,1]}}
 # print(a)
-# b = np.flip(a,2)
 # print(b)
-# b = b.reshape(1,18)
-# print(b)
-# b = pd.DataFrame(data=b)
-# print(b)
-# with open("more_data.csv", 'a') as file:
-#     file.write("2,")
-# b.to_csv("more_data.csv", header=False, index=False, mode='a')
-# print(pd.DataFrame(data=b).to_csv("more_data.csv", mode='a'))
+# print(add_weights(a,b))
