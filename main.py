@@ -20,11 +20,9 @@ architecture = {0: [{'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func'
                     'max_pooling': {'kernel':2, 'stride':2}],
                 'flatten': [100],
                 }
-
 weights = {'con_weights':
             'fully_weights':
         }
-
 """
 
 def get_data_and_target(path):
@@ -253,15 +251,15 @@ def get_dropout_layer(layer, dropout_percent):
     return dropout_vector * layer
 
 def fully_connected_forward_propagation_one_level(layer, weights, dropout=None, validate=False, last=False):
-    # if validate and dropout != None:
-    #     weights = weights * (1-dropout)
+    if validate and dropout != None:
+        weights = weights * (1-dropout)
     next_layer = weights * layer[:, np.newaxis]
     next_layer = next_layer.sum(axis=0)
     if not last:
         next_layer = np.maximum(next_layer, 0) # ReLU
 
-        # if dropout != None and not validate:
-        #     next_layer = get_dropout_layer(next_layer, dropout)
+        if dropout != None and not validate:
+            next_layer = get_dropout_layer(next_layer, dropout)
         next_layer[next_layer.shape[0] - 1] = -1  # bias unit
     return next_layer
 
@@ -274,8 +272,10 @@ def fully_connected_forward_propagation(input_layer, weights, dropout, validate)
     num_of_weights = len(weights)
     layers = {}
     layer_number = 0
-    # if not validate:
-    #     input_layer = get_dropout_layer(input_layer, dropout[0])
+    dropout_number = 0
+    if not validate:
+        input_layer = get_dropout_layer(input_layer, dropout[dropout_number])
+        dropout_number += 1
     layers[layer_number] = input_layer  # one raw in csv
     # if validate:
     #     dropout.insert(0, None) # the list will be one step forward for dropouting the weights and not the kayer before
@@ -285,7 +285,8 @@ def fully_connected_forward_propagation(input_layer, weights, dropout, validate)
     #     layers[layer_number] = make_noise(layers[layer_number], noise_percent)
     layers[layer_number] = np.append(layers[layer_number], [-1])  # bias unit
     for layer_number in range(1, num_of_weights + 1):
-        layers[layer_number] = fully_connected_forward_propagation_one_level(layers[layer_number-1], weights[layer_number-1], dropout=dropout[layer_number], validate=validate, last=layer_number == num_of_weights)
+        layers[layer_number] = fully_connected_forward_propagation_one_level(layers[layer_number-1], weights[layer_number-1], dropout=dropout[dropout_number], validate=validate, last=layer_number == num_of_weights)
+        dropout_number += 1
     layers[layer_number] = softmax(layers[layer_number])
     return layers, layers[layer_number]
 
@@ -556,14 +557,14 @@ dropout = [0.25, 0.4, 0.3, None]
 
 TRAIN_PATH = "data\\train.csv"
 VALIDATE_PATH = "data\\validate.csv"
-test_folder = "tt"
+test_folder = "dr"
 lr = {"convolution": 0.01,
       "fully_connected": 0.01}
 
 # create_rotated_data("data\\train.csv", "data\\normal_and_mirror_data.csv")
 # os.mkdir(test_folder)
-train_convulational_nn(test_folder, architecture, normalize=True, lr=lr, batch_size=50, dropout=dropout)
-# train_convulational_nn(test_folder, architecture, normalize=True, validate=True, dropout=dropout, epoch_number=23)
+# train_convulational_nn(test_folder, architecture, normalize=True, lr=lr, batch_size=50, dropout=dropout)
+train_convulational_nn(test_folder, architecture, normalize=True, validate=True, dropout=dropout, epoch_number=28)
 # train_convulational_nn(test_folder, architecture, normalize=True, multi_validate=True, epoch_number=2)
 
 # a = {'con_weights':{0:[1,2], 1:[1,2]}, 'fully_weights':{0:[1,2], 1:[1,2]}}
