@@ -7,9 +7,6 @@ from scipy import signal
 import sys
 import ast
 
-# pd.set_option('display.max_columns', None)
-# pd.set_option('display.width', None)
-# pd.set_option('display.max_colwidth', None)
 np.set_printoptions(threshold=sys.maxsize)
 # np.random.seed(42)
 """
@@ -383,13 +380,6 @@ def normalize_layer(features):
         else:
             features[i] = 0
 
-    # for i in range(len(features)):
-    #     try:
-    #         norm = np.linalg.norm(features[i])
-    #         features[i] = features[i] / norm
-    #     except:
-    #         print("ll")
-
     return features
     # return (input_features-input_features.mean()) / input_features.std()
 
@@ -443,12 +433,6 @@ def add_weights(basic_weights, delta_weights):
         return delta_weights.copy()
     basic_weights['con_weights'] = np.array(basic_weights['con_weights']) + np.array(delta_weights['con_weights'])
     basic_weights['fully_weights'] = np.array(basic_weights['fully_weights']) + np.array(delta_weights['fully_weights'])
-    # for level in range(len(basic_weights['con_weights'])):
-    #     basic_weights['con_weights'][level] = np.array(basic_weights['con_weights'][level]) + np.array(delta_weights['con_weights'][level])
-    # for level in range(len(basic_weights['fully_weights'])):
-    #     basic_weights['fully_weights'][level] = np.array(basic_weights['fully_weights'][level]) + np.array(delta_weights['fully_weights'][level])
-    # assert(basic_weights['con_weights'][0].shape == delta_weights['con_weights'][0].shape)
-    # assert(basic_weights['fully_weights'][0].shape == delta_weights['fully_weights'][0].shape)
     return basic_weights.copy()
 
 def get_begin_info(test_folder, architecture, epoch_number, validate, multi_validate):
@@ -504,8 +488,6 @@ def train_convulational_nn(test_folder, architecture, dropout, lr=None, validate
                 correct_predict += 1
 
             if not validate and not multi_validate:  # calculate output error
-                if (row_number == 1001):
-                    print("y")
                 error_output = get_error_output(output_layer, target_of_this_raw)
                 # backward propagation
                 tmp = full_backward_propagation(weights, error_output, layers, lr)
@@ -537,6 +519,8 @@ def train_convulational_nn(test_folder, architecture, dropout, lr=None, validate
             write_weights_to_csv(weights, test_folder, epoch_number)
             print_output_str(test_folder, epoch_number, correct_predict, len(target), lr=lr)
             epoch_number = epoch_number + 1
+	
+	    # decrease lr
             lr['convolution'] = 0.95 *  lr['convolution']
             lr['fully_connected'] = 0.95 *  lr['fully_connected']
 
@@ -553,11 +537,10 @@ architecture = {0: {'convolution': {'padding':1, 'kernel':3, 'stride':1, 'func':
                 }
 
 dropout = [0.25, 0.4, 0.3, None]
-# dropout = [0, 0, 0, None]
 
 TRAIN_PATH = "data\\train.csv"
 VALIDATE_PATH = "data\\validate.csv"
-test_folder = "dr"
+test_folder = "test_name"
 lr = {"convolution": 0.01,
       "fully_connected": 0.01}
 
@@ -567,8 +550,4 @@ lr = {"convolution": 0.01,
 train_convulational_nn(test_folder, architecture, normalize=True, validate=True, dropout=dropout, epoch_number=28)
 # train_convulational_nn(test_folder, architecture, normalize=True, multi_validate=True, epoch_number=2)
 
-# a = {'con_weights':{0:[1,2], 1:[1,2]}, 'fully_weights':{0:[1,2], 1:[1,2]}}
-# b = {'con_weights':{0:[1,1], 1:[1,1]}, 'fully_weights':{0:[1,1], 1:[1,1]}}
-# print(a)
-# print(b)
-# print(add_weights(a,b))
+
